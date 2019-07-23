@@ -1,0 +1,205 @@
+Apex Class : 
+------------
+public class RT_CusromFieldSet {
+    // Fetches the field set for the given sObject and the field set name
+    private static List<FieldSetWrapper> getFieldSet(String sObj, String fSetName){
+        Schema.FieldSet sObjFset = Schema.getGlobalDescribe().get(sObj).getDescribe().fieldSets.getMap().get(fSetName);
+        
+        List<Schema.FieldSetMember> fieldSet = sObjFset.getFields();
+        List<FieldSetWrapper> fMaplist = new List<FieldSetWrapper>();
+        for (Schema.FieldSetMember fmem: fieldSet) {
+            fMaplist.add(new FieldSetWrapper(fmem.getLabel(), fmem.getFieldPath(), fmem));
+        }
+        return fMaplist;
+    }
+    
+    // fetches the sObjRecords for the passed sObject and the Field Set Name
+    @AuraEnabled
+    public static Map<String, List<FieldSetWrapper>> getsObjRecords(String sObj, String fSetName){
+        List<FieldSetWrapper> fSetlist = getFieldSet(sObj, fSetName);
+        String fAPIname = '';
+        for(FieldSetWrapper fName : fSetlist){
+            fAPIname += fName.fAPIName + ',';
+        }
+        fAPIname += ' Id ';
+        String soqlQuery = 'Select ' + fAPIname + ' from ' + sObj + ' Limit 10';
+        List<sObject> sObjRecs = Database.query(soqlQuery);
+        
+        List<FieldSetWrapper> fSetWrapperlist = new List<FieldSetWrapper>();
+        for(sObject sObjRec : sObjRecs){
+            fSetWrapperlist.add(new FieldSetWrapper(sObjRec));
+        }
+        Map<String, List<FieldSetWrapper>> fSetWrapperMap = new Map<String, List<FieldSetWrapper>>();
+        fSetWrapperMap.put('sObjlist', fSetWrapperlist);
+        fSetWrapperMap.put('fieldSetlist', fSetlist);
+        
+        return fSetWrapperMap;
+    }
+    
+    /*
+* Wrapper Class to hold
+* Field Labels, their APIName, FieldSetMember and
+* sObject Record
+*/
+    public class FieldSetWrapper {
+        @AuraEnabled public String fLabel;
+        @AuraEnabled public String fAPIName;
+        @AuraEnabled public String fSetMember;
+        @AuraEnabled public sObject sObjRecord;
+        
+        public FieldSetWrapper(String fieldlabel, String fieldAPIName, FieldSetMember fSetMem){
+            fLabel = fieldlabel;
+            fAPIName = fieldAPIName;
+            fSetMember = JSON.serialize(fSetMem);
+        }
+        public FieldSetWrapper(sObject sObjRec){
+            sObjRecord = sObjRec;
+        }
+    }
+}
+
+Component : 
+-----------
+<aura:component controller="RT_CusromFieldSet" implements="forceCommunity:availableForAllPageTypes" access="global" >
+    <aura:attribute name="sObj" type="String" default="User" required="true"/>
+    <aura:attribute name="fSetName" type="String" default="UserFieldSet" required="true"/>
+    <aura:attribute name="searchText" type="String" default=""/>
+    
+    <aura:attribute name="fieldlist" type="List"/>
+    <aura:attribute name="sObjWrapperlist" type="List"/>
+    <aura:attribute name="AllUser" type="List"/>
+    
+    
+    <aura:handler name="init" value="{!this}" action="{!c.doInit}" />
+    <h1><center>USERS RECORDS</center></h1>
+   
+    <div onkeyup="{!c.handleKeyUp}" >
+        <lightning:input
+            aura:id="enter-search"
+            name="enter-search"
+            label="Search when user hits the 'enter' key"
+            type="search" 
+            value="{!v.searchText}"
+            onchange="{!c.handleKeyUp}"
+        />
+    </div>
+    
+     <div class="slds-scrollable_y" style="height:25rem;width:80rem">
+        <div class="slds-grid slds-wrap">
+           
+            <aura:iteration items="{!v.sObjWrapperlist}" var="obj">
+                <div class="slds-row slds-size_1-of-2 slds-p-around_small">
+                    <lightning:card>
+                        
+                        <aura:iteration items="{!obj}" var="obj2" indexVar="index">
+                           <!-- <aura:if isTrue="{or(!obj2.fDetails.type == 'url',!obj2.fvalue != null )}"> -->
+                            <aura:if isTrue="{!obj2.fDetails.type == 'url'}">
+                                <img src="{!obj2.fvalue}" height="42" width="42"/>
+                               <!-- <div class="slds-border_bottom">This should have a bottom border.</div> -->
+                                <aura:set attribute="else">
+                                     {!obj2.fvalue} <br />
+                                    <aura:if isTrue="{!index == 1}">
+                                        <div class="slds-border_bottom" />
+                                    </aura:if>
+                                </aura:set>
+                            </aura:if>
+                        </aura:iteration>
+                    </lightning:card>
+                </div>  
+            </aura:iteration>
+        </div>
+    </div>
+</aura:component>
+
+Controller (Js) : 
+----------------
+({
+    doInit : function(component, event, helper) {
+        helper.getsObjectRecs(component, event, helper);
+    },
+    handleKeyUp : function(component, event, helper) {
+		console.log('>>>> DoInit to Handler >>>>');
+        helper.handleKeyUp(component, event, helper);
+    } 
+})
+
+
+Helper (.js) :
+-------------- 
+({
+    getsObjectRecs : function(component, event, helper) {
+        var action = component.get("c.getsObjRecords");
+        action.setParams({
+            "sObj" : component.get("v.sObj"),
+            "fSetName" : component.get("v.fSetName")
+        });
+        action.setCallback(this, function(resp) {
+            var state=resp.getState();
+            if(state === "SUCCESS"){
+                console.log(resp.getReturnValue());
+                var response = resp.getReturnValue();
+                
+                var sObjlist = response["sObjlist"];
+                
+                var fSetlist = response["fieldSetlist"];
+                
+                component.set("v.fieldlist", fSetlist);
+                
+                var objWrapperlist = [];
+                
+                for (var sObj=0; sObj<sObjlist.length; sObj++){
+                    var objRec = [];
+                    for (var fSet=0; fSet<fSetlist.length; fSet++){
+                        var fAPIname = fSetlist[fSet].fAPIName
+                        var fValue = sObjlist[sObj].sObjRecord[fAPIname];
+                        var jsonStr = JSON.parse(fSetlist[fSet].fSetMember);
+                        objRec.push({"fvalue" : fValue,
+                                     "fDetails" : jsonStr
+                                    });
+                        // console.log('ObjRec',objRec);
+                    }
+                    objWrapperlist.push(objRec);
+                }
+                component.set("v.AllUser", objWrapperlist);
+                component.set("v.sObjWrapperlist", objWrapperlist);
+            }
+        });
+        $A.enqueueAction(action);
+    },
+    handleKeyUp: function (component, event, helper) {
+       // var isEnterKey = event.keyCode === 13; if we this keycode === 13 if we enter that related records are getting (or) if user keyCode = true it will automativally displayed. 
+         var isEnterKey = true;
+        console.log('>>>>>>>>',isEnterKey);
+        var queryTerm = component.find('enter-search').get('v.value');
+        console.log('!!!!!!!queryTerm!!!!!!!',queryTerm);
+        if (isEnterKey) {
+            
+            var objWrapperlist = component.get("v.AllUser");
+            let matcthedUser = [];
+            let strMatch = queryTerm ; // searched text in Search bar
+            
+            var objUr=[];
+            
+            objWrapperlist.forEach(function(object){
+                var isMatched = false;
+                object.forEach(function(records){
+                    console.log('records>>>>>>>>>',records);
+                    if(records.fvalue != undefined &&  records.fvalue != null && records.fvalue.includes(strMatch)){
+                        isMatched = true;
+                    }
+                });
+                if(isMatched){
+                    matcthedUser.unshift(object); // The unshift() method will add an element to the beginning of an array, while its twin function, shift(), will remove one element from the beginning of the array.
+                }
+            }); 
+            console.log('matcthedUser--------->',matcthedUser);
+            component.set("v.sObjWrapperlist", matcthedUser);
+        }
+    }
+})
+
+Application :  
+-------------
+<aura:application extends="force:slds">
+    <c:RT_CustomFieldSetCom />
+</aura:application>
