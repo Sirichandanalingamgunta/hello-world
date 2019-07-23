@@ -1,0 +1,112 @@
+/*
+@ClassName    : RT_FinancialRequestTriggerHandler
+@JIRATicket   : NA
+@CreatedOn    : 29-Apr-2019
+@ModifiedBy   : Siri Chandana
+@Description  : In This class we are assign some values in casecomment that are displaying another custom object like FinancialRequest
+*/
+
+public class RT_FinancialRequestTriggerHandler {
+    public void beforeInsert(List<Financial_Request__c> NewList){
+        displayFinancialRequest(NewList);
+        System.debug('Inside beforeInsert');
+    } 
+    public void beforeUpdate(List<Financial_Request__c> NewList){
+        displayFinancialRequest(NewList);
+        System.debug('Inside beforeInsert');
+    }     
+    public void afterInsert(List<Financial_Request__c> lstFRequests, Map<Id,Financial_Request__c> newMap){
+        attachingFiles(lstFRequests);
+        System.debug('Inside AfterInsert');
+    }
+    
+    
+    
+    /*
+* Method Name :displayFinancialRequest
+* Params: List Type
+* Description: In this method display values
+*/
+    public void displayFinancialRequest(List<Financial_Request__c> NewList){
+        
+        Set<String> HistoricalId=new Set<String>();
+        
+        for(Financial_Request__c fr:NewList){
+            // if(!String.isBlank(fr.Historical_Case_Id__c)){
+            HistoricalId.add(fr.Historical_Case_Id__c);
+        }
+        
+        map<Id, List<CaseComment>> lstCaseCommentsByCaseId = new map<Id, List<CaseComment>>();
+        for(CaseComment objcon : [Select Id, ParentId, CommentBody, CreatedById, CreatedDate 
+                                  From CaseComment 
+                                  WHERE ParentId = :HistoricalId])
+        {
+            if(!lstCaseCommentsByCaseId.containsKey(objcon.ParentId)){
+                lstCaseCommentsByCaseId.put(objcon.ParentId, new List<CaseComment>());
+            }
+            lstCaseCommentsByCaseId.get(objcon.ParentId).add(objcon);
+        } 
+        String comment = '';
+        for(Financial_Request__c fr : NewList)
+        {
+            if((fr.Historical_Case_Id__c != null) || (fr.Historical_Case_Id__c == '')){
+                if(fr.Historical_Case_Id__c.startsWith('500')){
+                    
+                    List<CaseComment> lstcasecomment = lstCaseCommentsByCaseId.get(fr.Historical_Case_Id__c);
+                    for(CaseComment cc : lstcasecomment){
+                        comment += 'CreatedById: '+cc.CreatedById+',\n'+' CreatedDate: '+cc.CreatedDate+',\n'+' CommentBody: '+cc.CommentBody+',\n' ;
+                    }
+                    fr.Internal_Comments__c +=  comment ;
+                } // End of if
+                else{
+                    //fr.Historical_Case_Id__c='Invalid Case Id';
+                    
+                    fr.addError('INvalid Case ID');
+                    fr.Internal_Comments__c = '';
+                }
+            }
+            else{
+                fr.Internal_Comments__c = '';
+            }
+        }
+    } 
+    
+    // For Attaching Files
+    public void attachingFiles(List<Financial_Request__c> lstFRequests) {
+        Set<String> HistoricalId=new Set<String>();
+        for(Financial_Request__c fr:lstFRequests){
+            HistoricalId.add(fr.Historical_Case_Id__c);
+        }
+        
+        map<Id, List<Attachment>> lstAttachmentsByCaseId = new map<Id, List<Attachment>>();
+        for(Attachment objAtt : [Select Id, ParentId, Name,Body 
+                                 From Attachment 
+                                 WHERE ParentId = :HistoricalId])
+        {
+            if(!lstAttachmentsByCaseId.containsKey(objAtt.ParentId)){
+                lstAttachmentsByCaseId.put(objAtt.ParentId, new List<Attachment>());
+            }
+            lstAttachmentsByCaseId.get(objAtt.ParentId).add(objAtt);
+            
+        }
+        List<Attachment>lstAttachtoInsert = new List<Attachment>();
+        for(Financial_Request__c objFr : lstFRequests){
+            
+            List<Attachment> lstAttachment = lstAttachmentsByCaseId.get(objFr.Historical_Case_Id__c);
+            System.debug('<<<Attactlist>>'+lstAttachment);
+            if(objFr.Historical_Case_Id__c != null){
+                for(Attachment att : lstAttachment){
+                    Attachment at = new Attachment();
+                    at.name = att.name;
+                    at.body = att.body;
+                    at.parentid = objFr.Id;
+                    lstAttachtoInsert.add(at);
+                    
+                }
+            }
+            if(!lstAttachtoInsert.isEmpty())
+                INSERT lstAttachtoInsert;
+        }
+        
+    }
+}
